@@ -40,16 +40,6 @@ def get_hreflang_for_page(
             return h
 
 
-class PageWithAlts(typing.NamedTuple):
-    instance: str
-    alternates: typing.List[str]
-
-
-class PageCheckResult(typing.NamedTuple):
-    hreflang: HrefLang
-    instance: "PageCheck"
-
-
 class Page(typing.NamedTuple):
     url: str
     alts: typing.List[HrefLang]

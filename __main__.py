@@ -2,7 +2,7 @@ import sys
 import urllib.robotparser as robotparser
 from crawler import Crawler
 from sitemap import Sitemap
-from common import CheckResult, CheckResults, SitemapCheckResult
+from common import CheckResult, CheckResults
 import typing
 import logging
 
@@ -18,7 +18,7 @@ def exit_wrong_usage():
     sys.exit(1)
 
 
-def format_result(result: typing.Union[CheckResult, SitemapCheckResult, CheckResults]):
+def format_result(result: typing.Union[CheckResult, CheckResults]):
     symbol = "✅" if result.valid else "❌"
     return f"\t{symbol} {check.msg}"
 
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     crawler = Crawler(site)
     sitemap = Sitemap(site)
 
-    results = [*crawler.rec_crawl()]
+    results = [*crawler.crawl()]
     print("Dere!")
     for n, check in enumerate(results):
         # if not check.valid:

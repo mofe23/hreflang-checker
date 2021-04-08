@@ -24,8 +24,8 @@ class Crawler:
         rp.read()
         self.rp = rp
 
-    #  the recursive crawler, it calls the hreflang check module, so if you want a free crawl validation, this is what you need
-    def rec_crawl(self, page: str = None) -> typing.Iterable[CheckResult]:
+    def crawl(self, page: str = None) -> typing.Iterable[CheckResult]:
+        """the recursive crawler, it calls the hreflang check module, so if you want a free crawl validation, this is what you need"""
         page = page or self.root
 
         logger.info(
@@ -40,9 +40,9 @@ class Crawler:
                 yield from instance.validate_alts()
                 self.to_crawl.update(instance.get_links().difference(self.crawled))
         else:
-            logger.error(f"badly formed link {page}")
+            yield CheckResult(valid=False, msg=f"{page} is a badly formed url")
 
         self.crawled.add(page)
 
         if len(self.to_crawl) > 0:
-            yield from self.rec_crawl(self.to_crawl.pop())
+            yield from self.crawl(self.to_crawl.pop())

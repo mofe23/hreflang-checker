@@ -8,7 +8,7 @@ import logging
 
 from common import (
     Page,
-    SitemapCheckResult,
+    CheckResult,
     get_alts_for_link,
     get_hreflang_for_link,
     HrefLang,
@@ -24,8 +24,8 @@ class Sitemap:
         self.home_page = "{uri.scheme}://{uri.netloc}/".format(uri=self.parsed_uri)
         self.roboter = self.home_page + "robots.txt"
 
-    # get the sitemaps, this will only return what is pointed to in robots, if they are sitemap indexes then that is what is returned
     def check_robots_for_sitemap(self):
+        """get the sitemaps, this will only return what is pointed to in robots, if they are sitemap indexes then that is what is returned"""
         sitemaps = []
         r = requests.get(self.roboter)
         lines = r.content.split(b"\n")
@@ -38,9 +38,10 @@ class Sitemap:
         else:
             return sitemaps
 
-    # this checks if the robots sitemaps are sitemap indexes and if so, parses them to get the actual sitemaps
-    # it only checks on one level, so if you a sitemap index of sitemap indexes this gets wonky
     def get_sitemaps(self) -> typing.List[str]:
+        """this checks if the robots sitemaps are sitemap indexes and if so, parses them to get the actual sitemaps
+        it only checks on one level, so if you a sitemap index of sitemap indexes this gets wonky
+        """
         sitemaps_now = self.check_robots_for_sitemap()
         sitemaps = []
         if sitemaps_now is not False:
@@ -55,9 +56,8 @@ class Sitemap:
             logger.info("no sitemaps in the robots file")
         return sitemaps
 
-    # does the heavy lifting, grabs all sitemaps, parses them into a workable dictionary
-    def get_pages(self, sitemaps: typing.List[str]) -> typing.List[Page]:
-        data = []
+    def get_pages(self, sitemaps: typing.List[str]) -> typing.Iterable[Page]:
+        """does the heavy lifting, grabs all sitemaps, parses them into a workable dictionary"""
         for sitemap in sitemaps:
             logger.info("downloading sitemap :" + sitemap)
             r = requests.get(sitemap)
@@ -67,30 +67,27 @@ class Sitemap:
                 content = r.content
             soup = BeautifulSoup(content, "lxml")
             for url in soup.find_all("url"):
-                data.append(
-                    Page(
-                        url=url.find("loc").text,
-                        alts=[
-                            HrefLang(href=alt["href"], language=alt["hreflang"])
-                            for alt in url.find_all(attrs={"rel": "alternate"})
-                        ],
-                    )
+                yield Page(
+                    url=url.find("loc").text,
+                    alts=[
+                        HrefLang(href=alt["href"], language=alt["hreflang"])
+                        for alt in url.find_all(attrs={"rel": "alternate"})
+                    ],
                 )
-        return data
 
-    # checks all sitemap urls with hreflang for a self reference
-    def check_self_ref(self, page: Page) -> typing.Iterable[SitemapCheckResult]:
+    def check_self_ref(self, page: Page) -> typing.Iterable[CheckResult]:
+        """checks all sitemap urls with hreflang for a self reference"""
         msg = f"{page.url} is missing self reference"
         valid = False
         if page.url in [_.href for _ in page.alts]:
             msg = f"{page.url} has self reference"
             valid = True
-        yield SitemapCheckResult(msg=msg, valid=valid)
+        yield CheckResult(msg=msg, valid=valid)
 
-    #  checks that links pointed to in hreflang are also in the sitemap
     def check_link_in_map(
         self, page: Page, pages: typing.List[Page]
-    ) -> typing.Iterable[SitemapCheckResult]:
+    ) -> typing.Iterable[CheckResult]:
+        """checks that links pointed to in hreflang are also in the sitemap"""
         urls = list(_.url for _ in pages)
         for alt in page.alts:
             msg = alt.href + " is is pointed to but has no corresponding url element"
@@ -98,12 +95,12 @@ class Sitemap:
             if alt.href in urls:
                 valid = True
                 msg = alt.href + " is in and has a corresponding url element"
-            yield SitemapCheckResult(msg=msg, valid=valid)
+            yield CheckResult(msg=msg, valid=valid)
 
-    # checks if alternates exist and have alternates pointing back to the origin
     def check_return(
         self, page: Page, pages: typing.List[Page]
-    ) -> typing.Iterable[SitemapCheckResult]:
+    ) -> typing.Iterable[CheckResult]:
+        """checks if alternates exist and have alternates pointing back to the origin"""
         for alt in page.alts:
             msg = page.url + " points to " + alt.href + " but not return"
             valid = False
@@ -116,13 +113,13 @@ class Sitemap:
                     + " and has link pointing back to it"
                 )
                 valid = True
-            yield SitemapCheckResult(msg=msg, valid=valid)
+            yield CheckResult(msg=msg, valid=valid)
 
-    # checks if alternates exist, then if they do ensures that the origins targeting is
-    # the same as the targeting applied by the alternate
     def check_target(
         self, page: Page, pages: typing.List[Page]
-    ) -> typing.Iterable[SitemapCheckResult]:
+    ) -> typing.Iterable[CheckResult]:
+        """checks if alternates exist, then if they do ensures that the origins
+        targeting is the same as the targeting applied by the alternate"""
         urls = [_.url for _ in pages]
         for alt in page.alts:
             if alt.href not in urls:
@@ -140,17 +137,15 @@ class Sitemap:
                 + hreflang.language
             )
             valid = hreflang and alt.language == hreflang.language
-            yield SitemapCheckResult(msg=msg, valid=valid)
+            yield CheckResult(msg=msg, valid=valid)
 
-    # loops through each url in sitemap applying checks to each, updates dict with "checks" which have data on errors
-    def check_data(self) -> typing.Iterable[SitemapCheckResult]:
+    def check_data(self) -> typing.Iterable[CheckResult]:
+        """loops through each url in sitemap applying checks to each, updates dict with "checks" which have data on errors"""
         sitemaps = self.get_sitemaps()
-        pages = self.get_pages(sitemaps)
+        pages = list(self.get_pages(sitemaps))
         logger.info(f"Found {len(sitemaps)} sitemaps referencing {len(pages)} pages")
         for page in pages:
-            yield from [
-                *self.check_self_ref(page),
-                *self.check_link_in_map(page, pages),
-                *self.check_return(page, pages),
-                *self.check_target(page, pages),
-            ]
+            yield from self.check_self_ref(page)
+            yield from self.check_link_in_map(page, pages)
+            yield from self.check_return(page, pages)
+            yield from self.check_target(page, pages)

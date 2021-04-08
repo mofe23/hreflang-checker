@@ -12,7 +12,6 @@ from common import (
     ValidatedLink,
     is_page_in_hreflang,
     get_hreflang_for_page,
-    PageCheckResult,
 )
 import logging
 
@@ -20,8 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 class PageCheck:
-    # get all the page data, only want to do this once so stuck it in the init to have the data throughout
     def __init__(self, page: str, rp):
+        """
+        get all the page data, only want to do this once so stuck it in the init to have the data throughout
+        :param page:
+        :param rp:
+        """
         self.page = page
         self.parsed_uri = urlparse(page)
         self.home_page = "{uri.scheme}://{uri.netloc}/".format(uri=self.parsed_uri)
@@ -144,76 +147,57 @@ class PageCheck:
     def check_self(self) -> bool:
         return is_page_in_hreflang(self.page, self.get_hreflangs())
 
-    # create a new instance for each of the alts (yea recursion biatch)
-    def create_alt_instances(self) -> typing.List[PageCheckResult]:
+    def create_alt_instances(self) -> typing.Iterable["PageCheck"]:
+        """create a new instance for each of the alts (yea recursion biatch)"""
         hreflangs = self.get_hreflangs()
-        alt_instances: typing.List[PageCheckResult] = []
         for hreflang in hreflangs:
             if validators.url(hreflang.href):
-                alt_instances.append(
-                    PageCheckResult(hreflang, PageCheck(hreflang.href, self.rp))
-                )
+                yield PageCheck(hreflang.href, self.rp)
             else:
                 logger.info("badly formed link " + hreflang.href)
-        return alt_instances
 
-    # cheks that alternate pages being pointed to also point back
-    def check_return(
-        self, alt_instances: typing.List[PageCheckResult]
-    ) -> typing.Iterable[CheckResult]:
-        for hreflang, instance in alt_instances:
-            valid = is_page_in_hreflang(self.page, instance.get_hreflangs())
-            if valid:
-                msg = f"{self.page} has return link from {instance.page}"
-            else:
-                msg = f"{self.page} missing return link from {instance.page}"
-            yield CheckResult(valid=valid, msg=msg)
-
-    # ensure alts have self referring tags
-    def check_alts_self(
-        self, alt_instances: typing.List[PageCheckResult]
-    ) -> typing.Iterable[CheckResult]:
-        for hreflang, instance in alt_instances:
-            valid = instance.check_self()
-            if valid:
-                msg = f"{self.page} points to page {instance.page} which has it's self-reference"
-            else:
-                msg = f"{self.page} points to page {instance.page} which is missing it's self references"
-            yield CheckResult(msg=msg, valid=valid)
-
-    # ensure pages being pointed to are indexable
-    def check_alts_indexable(
-        self, alt_instances: typing.List[PageCheckResult]
-    ) -> typing.Iterable[CheckResult]:
-        for language, instance in alt_instances:
-            valid = instance.indexable().valid
-            if valid:
-                msg = f"{self.page} points to indexable page {instance.page}"
-            else:
-                msg = f"{self.page} points to non-indexable page {instance.page}"
-            yield CheckResult(msg=msg, valid=valid)
-
-    # checks if alternate pages all use the same code as the page we are checking when pointing to it
-    def check_targeting(
-        self, alt_instances: typing.List[PageCheckResult]
-    ) -> typing.Iterable[CheckResult]:
-        target = get_hreflang_for_page(self.page, self.get_hreflangs())
-        for language, instance in alt_instances:
-            hreflang = get_hreflang_for_page(self.page, instance.get_hreflangs())
-            valid = hreflang == target
-            if valid:
-                msg = f"{self.page} has page {instance.page} pointing to it with hreflang {getattr(hreflang, 'language', 'Not found')}"
-            else:
-                msg = f"{self.page} has page {instance.page} pointing to it with the wrong locale {getattr(hreflang, 'language', 'Not found')}"
-            yield CheckResult(msg=msg, valid=valid)
-
-    # calls a few hreflang checking functions for the page we are on
-    def validate_alts(self) -> typing.Iterable[CheckResult]:
-        alt_instances = self.create_alt_instances()
-        if len(alt_instances) == 0:
-            logger.info("No Tags on: " + self.page)
+    def check_return(self, alt: "PageCheck") -> CheckResult:
+        """checks that alternate pages being pointed to also point back"""
+        valid = is_page_in_hreflang(self.page, alt.get_hreflangs())
+        if valid:
+            msg = f"{self.page} has return link from {alt.page}"
         else:
-            yield from self.check_return(alt_instances)
-            yield from self.check_alts_self(alt_instances)
-            yield from self.check_alts_indexable(alt_instances)
-            yield from self.check_targeting(alt_instances)
+            msg = f"{self.page} missing return link from {alt.page}"
+        return CheckResult(valid=valid, msg=msg)
+
+    def check_alts_self(self, alt: "PageCheck") -> CheckResult:
+        """ensure alts have self referring tags"""
+        valid = alt.check_self()
+        if valid:
+            msg = f"{self.page} points to page {alt.page} which has it's self-reference"
+        else:
+            msg = f"{self.page} points to page {alt.page} which is missing it's self references"
+        return CheckResult(msg=msg, valid=valid)
+
+    def check_alts_indexable(self, alt: "PageCheck") -> CheckResult:
+        """ensure pages being pointed to are indexable"""
+        valid = alt.indexable().valid
+        if valid:
+            msg = f"{self.page} points to indexable page {alt.page}"
+        else:
+            msg = f"{self.page} points to non-indexable page {alt.page}"
+        return CheckResult(msg=msg, valid=valid)
+
+    def check_targeting(self, alt: "PageCheck") -> CheckResult:
+        """checks if alternate pages all use the same code as the page we are checking when pointing to it"""
+        target = get_hreflang_for_page(self.page, self.get_hreflangs())
+        hreflang = get_hreflang_for_page(self.page, alt.get_hreflangs())
+        valid = hreflang == target
+        if valid:
+            msg = f"{self.page} has page {alt.page} pointing to it with hreflang {getattr(hreflang, 'language', 'Not found')}"
+        else:
+            msg = f"{self.page} has page {alt.page} pointing to it with the wrong locale {getattr(hreflang, 'language', 'Not found')}"
+        return CheckResult(msg=msg, valid=valid)
+
+    def validate_alts(self) -> typing.Iterable[CheckResult]:
+        """calls a few hreflang checking functions for the page we are on"""
+        for alt in self.create_alt_instances():
+            yield self.check_return(alt)
+            yield self.check_alts_self(alt)
+            yield self.check_alts_indexable(alt)
+            yield self.check_targeting(alt)
