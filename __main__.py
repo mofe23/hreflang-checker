@@ -24,7 +24,7 @@ def format_result(result: typing.Union[CheckResult, CheckResults]):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.WARN)
+    logging.basicConfig(level=logging.INFO)
     if len(sys.argv) < 2:
         exit_wrong_usage()
 
